@@ -1,0 +1,6 @@
+{
+  "name": "형설지공",
+  "description": "반짝이는 반딧불과 쌓인 눈의 기운으로 학업에 전념하여 깨우침을 얻는 고전 한자 및 고사성어 스마트 AI 학습관",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
