@@ -1,13 +1,10 @@
 import express from "express";
-import path from "path";
 import dotenv from "dotenv";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
 
 app.use(express.json());
 
@@ -33,8 +30,6 @@ function getGemini(): GoogleGenAI {
 
 /**
  * Executes a Gemini request with automatic retry (exponential backoff) and model fallback.
- * If the primary model (gemini-3.5-flash) experiences transient issues, it retries.
- * If all retries fail, it falls back to the secondary model (gemini-3.1-flash-lite) with retries as well.
  */
 async function generateContentWithRetry(
   ai: GoogleGenAI,
@@ -72,7 +67,6 @@ async function generateContentWithRetry(
         const errStatus = String(err.status || "").toUpperCase();
         const errCode = Number(err.code || 0);
 
-        // Check if error is transient / high demand
         const isTransient = 
           errStatus === "UNAVAILABLE" || 
           errStatus === "RESOURCE_EXHAUSTED" || 
@@ -87,7 +81,7 @@ async function generateContentWithRetry(
         if (isTransient && attempt < attempts) {
           console.log(`[Gemini] Sleeping ${delayMs}ms before retrying ${modelName}...`);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
-          delayMs *= 2; // Exponential backoff
+          delayMs *= 2;
         } else {
           break;
         }
@@ -109,7 +103,7 @@ app.post("/api/search-hanja", async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
-      error: "Gemini API 키가 설정되지 않았습니다. AI Studio의 Settings > Secrets에서 GEMINI_API_KEY를 등록해 주세요."
+      error: "Gemini API 키가 설정되지 않았습니다. Vercel의 Settings > Environment Variables에서 GEMINI_API_KEY를 등록해 주세요."
     });
   }
 
@@ -227,7 +221,7 @@ app.post("/api/search-idiom", async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
-      error: "Gemini API 키가 설정되지 않았습니다. AI Studio의 Settings > Secrets에서 GEMINI_API_KEY를 등록해 주세요."
+      error: "Gemini API 키가 설정되지 않았습니다. Vercel의 Settings > Environment Variables에서 GEMINI_API_KEY를 등록해 주세요."
     });
   }
 
@@ -242,24 +236,23 @@ The query could be:
 3. Meaning or description (e.g. '마음으로 전하다', '서로 뜻이 통하다')
 
 CRITICAL SPELLING & TYPO CORRECTION GUIDE:
-- Users frequently enter phonetic modifications, misheard readings, or slight Chinese character variations due to misconceptions (for example, searching for '가기의방' instead of '가기이방' / '可欺宜方' instead of '可欺以方').
-- You MUST identify these sound-alike patterns or character approximations. If a user enters a slightly misheard or typo-filled idiom like "가기의방" or "可欺宜方", you MUST intelligently resolve and map it to the correct, standard historical Four-Character Idiom ("可欺以方" / "가기이방") and return that instead. 
-- In such correction cases, gently clarify the discrepancy in the "tip" field in Korean (e.g., "올바른 표기는 '가기이방(可欺以方)'이지만, '가기의방' 혹은 '可欺宜方'으로도 널리 혼동하여 검색되는 역사적 고사성어입니다. 맹자에 수록된 구절으로...") so they can learn the exact, standard spelling!
+- Users frequently enter phonetic modifications, misheard readings, or slight Chinese character variations due to misconceptions.
+- You MUST identify these sound-alike patterns or character approximations and map to standard Four-Character Idioms.
 
 Find the most appropriate matching Four-Character Idioms (up to 4 idioms depending on the breadth of query).
 Return a JSON array of matched idiom details. Ensure all fields are filled accurately in Korean:
-- idiom: The 4 Chinese characters (e.g., "悠悠自適")
-- reading: Korean phonetic pronunciation reading (e.g., "유유자적")
-- meaning: Detailed, clear, and elegant Korean explanation/definition of its meaning and context (e.g., "속세를 떠나 아무 속박 없이 자기가 하고 싶은 대로 여유롭게 마음 편히 살아감")
-- literalMeaning: Character-by-character translation and literal meaning break down in Korean (e.g., "悠(멀 유) 悠(멀 유) 自(스스로 자) 適(편안할 적) - 스스로 유유히 편안함으로 가다")
-- tip: A memorable story, background historical origin (고사성어 배경), or clean visual mnemonic rendering to make it easy to remember and write down.`;
+- idiom: The 4 Chinese characters
+- reading: Korean phonetic pronunciation reading
+- meaning: Detailed, clear, and elegant Korean explanation/definition
+- literalMeaning: Character-by-character translation
+- tip: A memorable story or background historical origin.`;
 
     const config = {
       systemInstruction: systemPrompt,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.ARRAY,
-        description: "List of matched Four-Character Idioms (사자성어) with origin and definitions.",
+        description: "List of matched Four-Character Idioms with origin and definitions.",
         items: {
           type: Type.OBJECT,
           required: [
@@ -310,26 +303,12 @@ Return a JSON array of matched idiom details. Ensure all fields are filled accur
   }
 });
 
-// Setup Vite or Static File Serving
-async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[Hanja STUDY] Server is running on port ${PORT}`);
+// 단독 로컬 테스트 실행용 (Vercel 배포 시에는 수동 실행되지 않음)
+if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`[Hanja STUDY] Local Server running on port ${PORT}`);
   });
 }
 
-startServer();
 export default app;
